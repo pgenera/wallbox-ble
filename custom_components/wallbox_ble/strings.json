@@ -1,0 +1,47 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "confirm": {
+        "title": "Add Wallbox charger",
+        "description": "Set up {name}. Leave the PIN empty if no BLE PIN is configured on the charger.",
+        "data": { "pin": "BLE PIN (optional)" }
+      },
+      "user": {
+        "title": "Select a Wallbox charger",
+        "description": "Pick a discovered charger and optionally provide its BLE PIN.",
+        "data": {
+          "address": "Charger",
+          "pin": "BLE PIN (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-enter Wallbox PIN",
+        "description": "The charger rejected the previous PIN. Enter a new one or leave empty if the PIN was cleared.",
+        "data": { "pin": "BLE PIN" }
+      }
+    },
+    "abort": {
+      "already_configured": "Charger is already configured",
+      "already_in_progress": "Configuration flow is already in progress",
+      "no_devices_found": "No Wallbox chargers were discovered",
+      "not_supported": "This device does not look like a Wallbox charger",
+      "reauth_successful": "Re-authentication succeeded"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wallbox BLE options",
+        "data": {
+          "pin": "BLE PIN",
+          "fast_poll_seconds": "Fast poll interval (seconds)",
+          "slow_poll_seconds": "Slow poll interval (seconds)",
+          "service_uuid": "GATT service UUID override",
+          "write_char_uuid": "Write characteristic UUID override",
+          "notify_char_uuid": "Notify characteristic UUID override"
+        }
+      }
+    }
+  }
+}

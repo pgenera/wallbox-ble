@@ -1,0 +1,14 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: wallbox-ble-dev-ha
+    # 8124 on the host so we don't collide with a real HA on 8123.
+    ports: ["8124:8123"]
+    volumes:
+      - ./config:/config
+      # The integration source: edit on the host, restart the container to reload.
+      - ../custom_components:/config/custom_components
+    environment:
+      TZ: ${TZ:-UTC}
+    # Restart "no" so dev iterations don't auto-resurrect a broken container.
+    restart: "no"

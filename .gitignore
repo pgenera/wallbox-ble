@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# dev HA runtime state
+dev/config/*.db
+dev/config/*.db-*
+dev/config/home-assistant.log*
+dev/config/.storage/
+dev/config/.cloud/
+dev/config/.HA_VERSION
+dev/config/deps/
+dev/config/tts/
+dev/config/secrets.yaml

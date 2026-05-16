@@ -1,0 +1,9 @@
+# Minimal dev HA config. Everything else is configured via the UI on first run.
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.wallbox_ble: debug
+    homeassistant.components.bluetooth: info
+    bleak_retry_connector: info

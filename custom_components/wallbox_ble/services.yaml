@@ -1,0 +1,85 @@
+set_schedule:
+  name: Set schedule
+  description: Create or update a Wallbox charging schedule.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: The wallbox_ble config entry (charger) to target.
+      required: true
+      selector:
+        config_entry:
+          integration: wallbox_ble
+    sid:
+      name: Schedule ID
+      description: Slot to write (0-based).
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 31
+          mode: box
+    start:
+      name: Start time (HH:MM UTC)
+      required: true
+      selector:
+        text:
+    stop:
+      name: Stop time (HH:MM UTC)
+      required: true
+      selector:
+        text:
+    days:
+      name: Days
+      description: Days of the week the schedule is active.
+      required: true
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    enabled:
+      name: Enabled
+      default: true
+      selector:
+        boolean:
+    mcr:
+      name: Max charging current (A)
+      description: Set to 0 for no limit.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 64
+    target_type:
+      name: Target type
+      description: 0 = time only, 1 = energy limit (Wh).
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1
+    target_value:
+      name: Target value (Wh, when target_type=1)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          mode: box
+
+delete_schedules:
+  name: Delete all schedules
+  description: Clear every schedule slot on the charger.
+  fields:
+    entry_id:
+      name: Config entry ID
+      required: true
+      selector:
+        config_entry:
+          integration: wallbox_ble
