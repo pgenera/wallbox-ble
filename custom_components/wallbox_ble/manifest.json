@@ -7,7 +7,16 @@
   "dependencies": ["bluetooth_adapters"],
   "requirements": ["bleak-retry-connector>=3.5.0"],
   "bluetooth": [
-    { "local_name": "WB*" },
+    { "local_name": "WB0*" },
+    { "local_name": "WB1*" },
+    { "local_name": "WB2*" },
+    { "local_name": "WB3*" },
+    { "local_name": "WB4*" },
+    { "local_name": "WB5*" },
+    { "local_name": "WB6*" },
+    { "local_name": "WB7*" },
+    { "local_name": "WB8*" },
+    { "local_name": "WB9*" },
     { "local_name": "Wallbox*" },
     { "service_uuid": "331a36f5-2459-45ea-9d95-6142f0c4b307" },
     { "service_uuid": "2456e1b9-26e2-8f83-e744-f34f01e9d701" }
