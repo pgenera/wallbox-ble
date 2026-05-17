@@ -214,16 +214,18 @@ OCPP_STATUS_PULSAR_MAX: dict[int, str] = {
     2: "Connected",
     3: "Charging",
 }
-# Pulsar Plus uses a different numbering. Best-effort map below;
-# please refine if you observe contradicting values in practice.
+# Pulsar Plus uses a different numbering. THIS MAP IS A GUESS — only
+# value 4 = "Connected" has been confirmed empirically. The others are
+# extrapolated from common OCPP state names and are likely wrong; refine
+# as new code values are observed in the 'OCPP status code' raw sensor.
 OCPP_STATUS_PULSAR_PLUS: dict[int, str] = {
-    0: "Not available",
-    1: "Not configured",
-    2: "Connecting",
-    3: "Disconnected",
-    4: "Connected",
-    5: "Charging",
-    6: "Unavailable",
+    0: "Not available",  # guess
+    1: "Not configured",  # guess
+    2: "Connecting",  # guess
+    3: "Disconnected",  # guess
+    4: "Connected",  # confirmed
+    5: "Charging",  # guess
+    6: "Unavailable",  # guess
 }
 
 
