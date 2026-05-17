@@ -130,9 +130,25 @@ def test_parser_two_back_to_back_objects():
 # ---------------------------------------------------------------------------
 
 def test_status_name_known_codes():
+    # Default = Pulsar MAX scheme
     assert bapi.status_name(2) == "Charging"
     assert bapi.status_name(161) == "Ready"
     assert bapi.status_name(194) == "Locked"
+
+
+def test_status_name_pulsar_plus_differs():
+    # Same code, different firmware -> different meaning.
+    assert bapi.status_name(1, "pulsar_plus") == "Charging"
+    assert bapi.status_name(1, "pulsar_max") == "Connected"
+    assert bapi.status_name(6, "pulsar_plus") == "Locked"
+    assert bapi.status_name(6, "pulsar_max") == "Error"
+
+
+def test_is_charging_layout_aware():
+    assert bapi.is_charging(1, "pulsar_plus") is True
+    assert bapi.is_charging(1, "pulsar_max") is False
+    assert bapi.is_charging(2, "pulsar_max") is True
+    assert bapi.is_charging(2, "pulsar_plus") is False
 
 
 def test_status_name_unknown_includes_code():
@@ -142,6 +158,7 @@ def test_status_name_unknown_includes_code():
 
 def test_charging_codes_disjoint_from_paused():
     assert bapi.CHARGING_CODES.isdisjoint(bapi.PAUSED_CODES)
+    assert bapi.CHARGING_CODES_PULSAR_PLUS.isdisjoint(bapi.PAUSED_CODES_PULSAR_PLUS)
 
 
 def test_eco_mode_labels_cover_all():

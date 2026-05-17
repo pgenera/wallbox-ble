@@ -17,9 +17,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from bleak_retry_connector import close_stale_connections, establish_connection
 
 from .bapi import (
-    CAR_CONNECTED_CODES,
-    CHARGING_CODES,
     GattLayout,
+    is_car_connected,
+    is_charging,
+    is_locked_from_status,
     status_name,
 )
 from .client import (
@@ -97,14 +98,13 @@ class WallboxState:
 
     extra: dict[str, Any] = field(default_factory=dict)
 
-    # Derived booleans (computed in apply()).
     @property
     def is_charging(self) -> bool:
-        return self.status_code in CHARGING_CODES
+        return is_charging(self.status_code, self.layout_name)
 
     @property
     def car_connected(self) -> bool:
-        return self.status_code in CAR_CONNECTED_CODES
+        return is_car_connected(self.status_code, self.layout_name)
 
 
 class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
@@ -222,6 +222,10 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
             _LOGGER.debug("Wallbox %s reconnect failed: %s", self.address, exc)
             return False
 
+        # Update layout_name BEFORE applying r_dat so status string + derived
+        # booleans (is_charging, car_connected) use the right code map.
+        self.state.layout_name = client.layout.name if client.layout else None
+
         self._tick += 1
         do_slow = (self._tick % SLOW_EVERY_N_FAST) == 1
 
@@ -246,7 +250,6 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
             except (BleakError, TimeoutError):
                 _LOGGER.debug("slow tier failed on %s", self.address)
 
-        self.state.layout_name = client.layout.name if client.layout else None
         return True
 
     async def _ensure_connected(self) -> WallboxBleClient:
@@ -297,7 +300,12 @@ def _apply_r_dat(s: WallboxState, r: Any) -> None:
     st = _to_int(r.get("st"))
     if st is not None:
         s.status_code = st
-        s.status = status_name(st)
+        s.status = status_name(st, s.layout_name)
+        # Some firmwares (notably Pulsar Plus) don't populate r_sta.lock_status;
+        # derive lock state from status code when it indicates LOCKED.
+        from_st = is_locked_from_status(st, s.layout_name)
+        if from_st:
+            s.locked = True
     s.charging_power_kw = _to_float(r.get("cp"))
     s.current_l1 = _scaled(r.get("L1"), 0.1)
     s.current_l2 = _scaled(r.get("L2"), 0.1)
@@ -332,7 +340,7 @@ def _apply_r_sta(s: WallboxState, r: Any) -> None:
     st = _to_int(r.get("charger_status"))
     if st is not None and s.status_code is None:
         s.status_code = st
-        s.status = status_name(st)
+        s.status = status_name(st, s.layout_name)
     lock = r.get("lock_status")
     if lock is not None:
         s.locked = bool(int(lock))
