@@ -40,6 +40,7 @@ class RebootButton(WallboxBleEntity, ButtonEntity):
 class ClearSchedulesButton(WallboxBleEntity, ButtonEntity):
     _attr_name = "Clear all schedules"
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
     _attr_icon = "mdi:calendar-remove"
 
     def __init__(self, coordinator: WallboxBleCoordinator) -> None:

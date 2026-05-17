@@ -23,6 +23,7 @@ async def async_setup_entry(
 
 class WallboxSocketLock(WallboxBleEntity, LockEntity):
     _attr_name = "Socket lock"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: WallboxBleCoordinator) -> None:
         super().__init__(coordinator, "lock")

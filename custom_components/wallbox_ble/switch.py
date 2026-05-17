@@ -83,6 +83,7 @@ class EcoSmartSwitch(WallboxBleEntity, SwitchEntity):
 class PhaseSwitch(WallboxBleEntity, SwitchEntity):
     _attr_name = "Phase switching"
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: WallboxBleCoordinator) -> None:
         super().__init__(coordinator, "phase_switch")
@@ -101,6 +102,7 @@ class PhaseSwitch(WallboxBleEntity, SwitchEntity):
 class PowerSharingDynamicSwitch(WallboxBleEntity, SwitchEntity):
     _attr_name = "Dynamic power sharing"
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: WallboxBleCoordinator) -> None:
         super().__init__(coordinator, "power_sharing_dynamic")
