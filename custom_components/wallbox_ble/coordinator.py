@@ -196,7 +196,8 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
         await self.async_request_refresh()
 
     async def async_send(self, met: str, par: Any = None) -> dict:
-        """Send a write and refresh state shortly after."""
+        """Send a write and read back the affected state inline so the UI
+        reflects the change within ~1 BLE round-trip (no debounce wait)."""
         if self._released:
             raise RuntimeError("BLE link is released; turn 'BLE in use' on to send commands")
         client = await self._ensure_connected()
@@ -204,14 +205,34 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
             resp = await client.send(met, par)
         except WallboxAuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
-        # Queue any associated settings readback so the next refresh confirms
-        # the write took effect, without re-polling every setting.
+
+        # Inline readback: read whichever endpoint reflects the write, apply
+        # to state, then push to entities. Avoids the coordinator refresh
+        # debouncer (which can delay the UI update by up to ~10s).
         readback = _READBACK_FOR_WRITE.get(met)
-        if readback is not None:
-            self._pending_readbacks.add(readback)
-        # Trigger an out-of-band refresh so r_dat / readback runs immediately
-        # instead of waiting for the next scheduled tick.
-        self.hass.async_create_task(self.async_request_refresh())
+        try:
+            if readback is not None:
+                r = await client.read(readback)
+                applier = _SETTING_APPLIERS.get(readback)
+                if applier is not None:
+                    applier(self.state, r)
+            else:
+                # w_cha / w_mxI / w_lck / clr_sch all affect r_dat's fields.
+                # rebot / set_pin don't, but a stale r_dat read is harmless.
+                r = await client.read("r_dat")
+                _apply_r_dat(self.state, r)
+        except (WallboxProtocolError, BleakError, TimeoutError) as exc:
+            _LOGGER.debug(
+                "inline readback after %s failed (%s); queuing for next tick",
+                met,
+                exc,
+            )
+            # Fall back to the deferred path so a transient failure still
+            # gets corrected on the next scheduled poll.
+            if readback is not None:
+                self._pending_readbacks.add(readback)
+
+        self.async_update_listeners()
         return resp
 
     # -- update loop -------------------------------------------------------
