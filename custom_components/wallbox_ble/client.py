@@ -115,6 +115,7 @@ class WallboxBleClient:
         try:
             self._layout = await self._resolve_layout(client)
             _LOGGER.debug("Wallbox %s GATT layout: %s", self.address, self._layout.name)
+            await self._pair_if_needed(client)
             await client.start_notify(self._layout.notify_char, self._handle_notify)
             self._connected = True
             await self._authenticate()
@@ -150,6 +151,41 @@ class WallboxBleClient:
                 self._on_disconnect()
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("disconnect callback raised")
+
+    # -- pairing -----------------------------------------------------------
+
+    async def _pair_if_needed(self, client: BleakClient) -> None:
+        """Pair/bond if the charger's BLE stack requires encryption.
+
+        Pulsar Plus chargers reject writes with GATT error 15 (Insufficient
+        Encryption) until the link is bonded. Pulsar MAX accepts plaintext
+        writes and pair() is a no-op. We just try and tolerate failure —
+        the first real write will surface a clear error if it didn't work.
+        """
+        pair = getattr(client, "pair", None)
+        if pair is None:
+            return
+        try:
+            await pair()
+            _LOGGER.debug("Wallbox %s paired", self.address)
+            return
+        except NotImplementedError:
+            _LOGGER.debug("pair() not implemented for this backend; skipping")
+            return
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("pair() failed (%s); trying ESPHome backend fallback", exc)
+        # Fallback: dig into the ESPHome bleak backend's underlying APIClient.
+        try:
+            backend = getattr(client, "_backend", None)
+            api_client = getattr(backend, "_client", None) if backend else None
+            pair_fn = getattr(api_client, "bluetooth_device_pair", None) if api_client else None
+            if pair_fn is None:
+                return
+            address_int = int(self.address.replace(":", ""), 16)
+            await pair_fn(address_int)
+            _LOGGER.debug("Wallbox %s paired via ESPHome backend", self.address)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("ESPHome pair fallback failed: %s", exc)
 
     # -- GATT probe --------------------------------------------------------
 
