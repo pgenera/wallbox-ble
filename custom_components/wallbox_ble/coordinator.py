@@ -42,6 +42,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Number of consecutive failed polls before we surface "unavailable" to HA.
+# At fast-poll=10s this is ~30s of tolerated outage before entities flip.
+_FAILURE_TOLERANCE = 2
+
 
 @dataclass
 class WallboxState:
@@ -117,6 +121,7 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
         self.state = WallboxState()
         self.client: WallboxBleClient | None = None
         self._released = False  # True when the user has released the BLE link (phone-app mode)
+        self._consecutive_failures = 0  # tolerate brief drops without flapping entities
 
         super().__init__(
             hass,
@@ -174,13 +179,48 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
             # User has released the link for phone-app access; stay quiet.
             self.state.connected = False
             return self.state
+
         try:
-            client = await self._ensure_connected()
+            ok = await self._poll_once()
         except WallboxAuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
-        except (BleakError, TimeoutError) as exc:
-            self.state.connected = False
-            raise UpdateFailed(str(exc)) from exc
+
+        if ok:
+            self._consecutive_failures = 0
+            self.state.connected = True
+            return self.state
+
+        # A poll failed. Drop any stale client so the next tick reconnects.
+        if self.client is not None:
+            try:
+                await self.client.disconnect()
+            finally:
+                self.client = None
+
+        self._consecutive_failures += 1
+        if self._consecutive_failures <= _FAILURE_TOLERANCE:
+            _LOGGER.debug(
+                "Wallbox %s poll failed (%d/%d) — keeping last state",
+                self.address,
+                self._consecutive_failures,
+                _FAILURE_TOLERANCE,
+            )
+            return self.state
+
+        self.state.connected = False
+        raise UpdateFailed(
+            f"{self._consecutive_failures} consecutive polls failed on {self.address}"
+        )
+
+    async def _poll_once(self) -> bool:
+        """Run one poll cycle. Return True on success, False on recoverable failure."""
+        try:
+            client = await self._ensure_connected()
+        except WallboxAuthError:
+            raise
+        except (BleakError, TimeoutError, UpdateFailed) as exc:
+            _LOGGER.debug("Wallbox %s reconnect failed: %s", self.address, exc)
+            return False
 
         self._tick += 1
         do_slow = (self._tick % SLOW_EVERY_N_FAST) == 1
@@ -188,23 +228,26 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
         try:
             r_dat = await client.read("r_dat")
             _apply_r_dat(self.state, r_dat)
+        except WallboxAuthError:
+            raise
+        except (WallboxProtocolError, BleakError, TimeoutError) as exc:
+            _LOGGER.debug("Wallbox %s r_dat failed: %s", self.address, exc)
+            return False
+
+        try:
+            r_dca = await client.read("r_dca")
+            _apply_r_dca(self.state, r_dca)
+        except (WallboxProtocolError, BleakError, TimeoutError):
+            _LOGGER.debug("r_dca unavailable on %s", self.address)
+
+        if do_slow:
             try:
-                r_dca = await client.read("r_dca")
-                _apply_r_dca(self.state, r_dca)
-            except (WallboxProtocolError, BleakError):
-                _LOGGER.debug("r_dca unavailable on %s", self.address)
-
-            if do_slow:
                 await _poll_slow(client, self.state)
-        except WallboxAuthError as exc:
-            raise ConfigEntryAuthFailed(str(exc)) from exc
-        except (BleakError, TimeoutError) as exc:
-            self.state.connected = False
-            raise UpdateFailed(str(exc)) from exc
+            except (BleakError, TimeoutError):
+                _LOGGER.debug("slow tier failed on %s", self.address)
 
-        self.state.connected = True
         self.state.layout_name = client.layout.name if client.layout else None
-        return self.state
+        return True
 
     async def _ensure_connected(self) -> WallboxBleClient:
         if self.client is not None and self.client.is_connected:

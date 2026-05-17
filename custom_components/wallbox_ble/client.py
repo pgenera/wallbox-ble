@@ -26,7 +26,7 @@ from .bapi import (
 
 _LOGGER = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT = 5.0
+REQUEST_TIMEOUT = 8.0
 CONNECT_TIMEOUT = 20.0
 
 
