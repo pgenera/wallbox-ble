@@ -35,8 +35,9 @@
         "title": "Wallbox BLE options",
         "data": {
           "pin": "BLE PIN",
-          "fast_poll_seconds": "Fast poll interval (seconds)",
-          "slow_poll_seconds": "Slow poll interval (seconds)",
+          "interval_charging": "Poll interval while charging (seconds)",
+          "interval_connected": "Poll interval while car connected (seconds)",
+          "interval_idle": "Poll interval while idle (seconds)",
           "service_uuid": "GATT service UUID override",
           "write_char_uuid": "Write characteristic UUID override",
           "notify_char_uuid": "Notify characteristic UUID override"

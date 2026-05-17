@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -30,15 +31,19 @@ from .client import (
 )
 from .const import (
     CONF_FAST_POLL,
+    CONF_INTERVAL_CHARGING,
+    CONF_INTERVAL_CONNECTED,
+    CONF_INTERVAL_IDLE,
     CONF_NOTIFY_CHAR_UUID,
     CONF_PIN,
     CONF_SERVICE_UUID,
     CONF_SLOW_POLL,
     CONF_WRITE_CHAR_UUID,
-    DEFAULT_FAST_POLL,
-    DEFAULT_SLOW_POLL,
+    DEFAULT_INTERVAL_CHARGING,
+    DEFAULT_INTERVAL_CONNECTED,
+    DEFAULT_INTERVAL_IDLE,
     DOMAIN,
-    SLOW_EVERY_N_FAST,
+    R_STA_INTERVAL_S,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +51,26 @@ _LOGGER = logging.getLogger(__name__)
 # Number of consecutive failed polls before we surface "unavailable" to HA.
 # At fast-poll=10s this is ~30s of tolerated outage before entities flip.
 _FAILURE_TOLERANCE = 2
+
+# Map a write op to the read method whose result reflects that write, so we
+# can verify "did the setting take effect" without polling everything.
+_READBACK_FOR_WRITE: dict[str, str | None] = {
+    # Status-changing writes: r_dat readback (already triggered by every
+    # async_send via async_request_refresh; no extra entry needed).
+    "w_cha": None,
+    "w_mxI": None,
+    "w_lck": None,
+    "rebot": None,
+    "clr_sch": None,
+    # Settings writes: read the matching getter on next tick.
+    "s_ecos": "g_ecos",
+    "s_alo": "g_alo",
+    "s_phsw": "g_phsw",
+    "s_psh": "g_psh",
+    "s_halocfg": "g_halocfg",
+    "s_tzn": "g_tzn",
+    "set_pin": None,
+}
 
 
 @dataclass
@@ -113,21 +138,32 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.entry = entry
         self.address: str = entry.unique_id or entry.data["address"]
-        self._pin: str = entry.options.get(CONF_PIN, entry.data.get(CONF_PIN, "")) or ""
-        self._layout_override = _layout_override_from_options(entry.options)
-        self._fast_s = int(entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL))
-        self._slow_s = int(entry.options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL))
-        self._tick = 0
+        opts = entry.options
+        self._pin: str = opts.get(CONF_PIN, entry.data.get(CONF_PIN, "")) or ""
+        self._layout_override = _layout_override_from_options(opts)
+        # Per-state poll cadence. Honor legacy CONF_FAST_POLL/SLOW_POLL keys
+        # if present (older entries) so options carry over.
+        self._interval_charging = int(
+            opts.get(CONF_INTERVAL_CHARGING, opts.get(CONF_FAST_POLL, DEFAULT_INTERVAL_CHARGING))
+        )
+        self._interval_connected = int(
+            opts.get(CONF_INTERVAL_CONNECTED, DEFAULT_INTERVAL_CONNECTED)
+        )
+        self._interval_idle = int(
+            opts.get(CONF_INTERVAL_IDLE, opts.get(CONF_SLOW_POLL, DEFAULT_INTERVAL_IDLE))
+        )
         self.state = WallboxState()
         self.client: WallboxBleClient | None = None
         self._released = False  # True when the user has released the BLE link (phone-app mode)
         self._consecutive_failures = 0  # tolerate brief drops without flapping entities
+        self._last_settings_refresh = 0.0  # monotonic timestamp of last full settings sweep
+        self._pending_readbacks: set[str] = set()  # settings to re-read after writes
 
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN} {self.address}",
-            update_interval=timedelta(seconds=self._fast_s),
+            update_interval=timedelta(seconds=self._interval_idle),
         )
 
     # -- public helpers ----------------------------------------------------
@@ -168,7 +204,13 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
             resp = await client.send(met, par)
         except WallboxAuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
-        # Refresh on next tick so UI reflects new state quickly.
+        # Queue any associated settings readback so the next refresh confirms
+        # the write took effect, without re-polling every setting.
+        readback = _READBACK_FOR_WRITE.get(met)
+        if readback is not None:
+            self._pending_readbacks.add(readback)
+        # Trigger an out-of-band refresh so r_dat / readback runs immediately
+        # instead of waiting for the next scheduled tick.
         self.hass.async_create_task(self.async_request_refresh())
         return resp
 
@@ -213,7 +255,12 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
         )
 
     async def _poll_once(self) -> bool:
-        """Run one poll cycle. Return True on success, False on recoverable failure."""
+        """Run one poll cycle. Return True on success, False on recoverable failure.
+
+        Adaptive: only reads telemetry that's interesting for the current
+        charger state. Settings (g_*) read once at startup, then only after a
+        write of the matching setter. r_sta runs every R_STA_INTERVAL_S.
+        """
         try:
             client = await self._ensure_connected()
         except WallboxAuthError:
@@ -226,9 +273,8 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
         # booleans (is_charging, car_connected) use the right code map.
         self.state.layout_name = client.layout.name if client.layout else None
 
-        self._tick += 1
-        do_slow = (self._tick % SLOW_EVERY_N_FAST) == 1
-
+        # 1. r_dat: always — that's what tells us whether the car is connected,
+        #    charging, or idle. Drives every cadence decision below.
         try:
             r_dat = await client.read("r_dat")
             _apply_r_dat(self.state, r_dat)
@@ -238,19 +284,45 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
             _LOGGER.debug("Wallbox %s r_dat failed: %s", self.address, exc)
             return False
 
-        try:
-            r_dca = await client.read("r_dca")
-            _apply_r_dca(self.state, r_dca)
-        except (WallboxProtocolError, BleakError, TimeoutError):
-            _LOGGER.debug("r_dca unavailable on %s", self.address)
-
-        if do_slow:
+        # 2. Slow tier (r_sta + r_dca + every g_* setting): every
+        #    R_STA_INTERVAL_S so values can't go stale if changed externally
+        #    (e.g. via the Wallbox phone app while we were idle).
+        now = time.monotonic()
+        if (now - self._last_settings_refresh) >= R_STA_INTERVAL_S:
             try:
-                await _poll_slow(client, self.state)
-            except (BleakError, TimeoutError):
-                _LOGGER.debug("slow tier failed on %s", self.address)
+                r = await client.read("r_sta")
+                _apply_r_sta(self.state, r)
+            except (WallboxProtocolError, BleakError, TimeoutError):
+                _LOGGER.debug("r_sta unavailable on %s", self.address)
+            try:
+                r = await client.read("r_dca")
+                _apply_r_dca(self.state, r)
+            except (WallboxProtocolError, BleakError, TimeoutError):
+                _LOGGER.debug("r_dca unavailable on %s", self.address)
+            await _poll_settings(client, self.state, _SETTING_READS)
+            # Any pending readbacks have just been satisfied implicitly.
+            self._pending_readbacks.clear()
+            self._last_settings_refresh = now
+        elif self._pending_readbacks:
+            mets = list(self._pending_readbacks)
+            self._pending_readbacks.clear()
+            await _poll_settings(client, self.state, mets)
 
+        # 5. Adapt the next-tick interval to current state.
+        self._update_interval_for_state()
         return True
+
+    def _update_interval_for_state(self) -> None:
+        """Adjust the poll interval based on the latest observed state."""
+        if self.state.is_charging:
+            new = self._interval_charging
+        elif self.state.car_connected:
+            new = self._interval_connected
+        else:
+            new = self._interval_idle
+        if self.update_interval is None or self.update_interval.total_seconds() != new:
+            self.update_interval = timedelta(seconds=new)
+            _LOGGER.debug("Wallbox %s next interval: %ds", self.address, new)
 
     async def _ensure_connected(self) -> WallboxBleClient:
         if self.client is not None and self.client.is_connected:
@@ -351,22 +423,32 @@ def _apply_r_sta(s: WallboxState, r: Any) -> None:
     s.phases_connection = _to_int(r.get("phases_connection"))
 
 
-async def _poll_slow(client: WallboxBleClient, s: WallboxState) -> None:
-    """Slow-tier reads; tolerate per-call errors."""
-    for met, applier in (
-        ("r_sta", _apply_r_sta),
-        ("g_alo", _apply_g_alo),
-        ("g_ecos", _apply_g_ecos),
-        ("g_psh", _apply_g_psh),
-        ("g_phsw", _apply_g_phsw),
-        ("g_tzn", _apply_g_tzn),
-        ("g_halocfg", _apply_g_halocfg),
-    ):
+_SETTING_APPLIERS = {
+    "g_alo": None,  # filled in below
+    "g_ecos": None,
+    "g_psh": None,
+    "g_phsw": None,
+    "g_tzn": None,
+    "g_halocfg": None,
+}
+
+# Order matters only for the once-at-startup walk.
+_SETTING_READS = ("g_alo", "g_ecos", "g_psh", "g_phsw", "g_tzn", "g_halocfg")
+
+
+async def _poll_settings(
+    client: WallboxBleClient, s: WallboxState, mets: list[str] | tuple[str, ...]
+) -> None:
+    """Read a list of g_* setting endpoints; tolerate per-call errors."""
+    for met in mets:
+        applier = _SETTING_APPLIERS.get(met)
+        if applier is None:
+            continue
         try:
             r = await client.read(met)
             applier(s, r)
         except (WallboxProtocolError, BleakError, TimeoutError):
-            _LOGGER.debug("slow read %s failed on %s", met, client.address)
+            _LOGGER.debug("setting read %s failed on %s", met, client.address)
 
 
 def _apply_g_alo(s: WallboxState, r: Any) -> None:
@@ -453,6 +535,14 @@ def _scaled(v: Any, factor: float) -> float | None:
     if f is None:
         return None
     return f * factor
+
+
+_SETTING_APPLIERS["g_alo"] = _apply_g_alo
+_SETTING_APPLIERS["g_ecos"] = _apply_g_ecos
+_SETTING_APPLIERS["g_psh"] = _apply_g_psh
+_SETTING_APPLIERS["g_phsw"] = _apply_g_phsw
+_SETTING_APPLIERS["g_tzn"] = _apply_g_tzn
+_SETTING_APPLIERS["g_halocfg"] = _apply_g_halocfg
 
 
 def _layout_override_from_options(opts: dict) -> GattLayout | None:

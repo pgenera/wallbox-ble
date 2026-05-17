@@ -19,14 +19,16 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS
 
 from .const import (
-    CONF_FAST_POLL,
+    CONF_INTERVAL_CHARGING,
+    CONF_INTERVAL_CONNECTED,
+    CONF_INTERVAL_IDLE,
     CONF_NOTIFY_CHAR_UUID,
     CONF_PIN,
     CONF_SERVICE_UUID,
-    CONF_SLOW_POLL,
     CONF_WRITE_CHAR_UUID,
-    DEFAULT_FAST_POLL,
-    DEFAULT_SLOW_POLL,
+    DEFAULT_INTERVAL_CHARGING,
+    DEFAULT_INTERVAL_CONNECTED,
+    DEFAULT_INTERVAL_IDLE,
     DOMAIN,
     NAME_PATTERNS,
 )
@@ -165,11 +167,17 @@ class WallboxBleOptionsFlow(OptionsFlow):
             {
                 vol.Optional(CONF_PIN, default=opts.get(CONF_PIN, "")): str,
                 vol.Optional(
-                    CONF_FAST_POLL, default=opts.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
+                    CONF_INTERVAL_CHARGING,
+                    default=opts.get(CONF_INTERVAL_CHARGING, DEFAULT_INTERVAL_CHARGING),
                 ): vol.All(int, vol.Range(min=5, max=300)),
                 vol.Optional(
-                    CONF_SLOW_POLL, default=opts.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)
+                    CONF_INTERVAL_CONNECTED,
+                    default=opts.get(CONF_INTERVAL_CONNECTED, DEFAULT_INTERVAL_CONNECTED),
                 ): vol.All(int, vol.Range(min=10, max=600)),
+                vol.Optional(
+                    CONF_INTERVAL_IDLE,
+                    default=opts.get(CONF_INTERVAL_IDLE, DEFAULT_INTERVAL_IDLE),
+                ): vol.All(int, vol.Range(min=15, max=900)),
                 vol.Optional(
                     CONF_SERVICE_UUID, default=opts.get(CONF_SERVICE_UUID, "")
                 ): str,
