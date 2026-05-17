@@ -231,6 +231,10 @@ class WallboxBleCoordinator(DataUpdateCoordinator[WallboxState]):
     def _on_disconnect(self) -> None:
         self.state.connected = False
 
+    def detach_client(self) -> None:
+        """Drop the reference without disconnecting (used during reload)."""
+        self.client = None
+
     async def async_shutdown(self) -> None:  # type: ignore[override]
         if self.client is not None:
             try:
