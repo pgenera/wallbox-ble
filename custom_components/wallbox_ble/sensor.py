@@ -24,6 +24,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .bapi import ocpp_status_name
 from .const import DOMAIN
 from .coordinator import WallboxBleCoordinator, WallboxState
 from .entity import WallboxBleEntity
@@ -225,6 +226,13 @@ _DESCRIPTIONS: tuple[WBSensorDesc, ...] = (
     WBSensorDesc(
         key="ocpp_status",
         name="OCPP status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value=lambda s: ocpp_status_name(s.ocpp_status, s.layout_name),
+    ),
+    WBSensorDesc(
+        key="ocpp_status_code",
+        name="OCPP status code",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value=lambda s: s.ocpp_status,

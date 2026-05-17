@@ -207,6 +207,32 @@ CAR_CONNECTED_CODES_PULSAR_PLUS: frozenset[int] = frozenset(
 )
 LOCKED_CODES_PULSAR_PLUS: frozenset[int] = frozenset({6})
 
+# OCPP status (separate code space per firmware family).
+OCPP_STATUS_PULSAR_MAX: dict[int, str] = {
+    0: "Not available",
+    1: "Not configured",
+    2: "Connected",
+    3: "Charging",
+}
+# Pulsar Plus uses a different numbering. Best-effort map below;
+# please refine if you observe contradicting values in practice.
+OCPP_STATUS_PULSAR_PLUS: dict[int, str] = {
+    0: "Not available",
+    1: "Not configured",
+    2: "Connecting",
+    3: "Disconnected",
+    4: "Connected",
+    5: "Charging",
+    6: "Unavailable",
+}
+
+
+def ocpp_status_name(code: int | None, layout_name: str | None = None) -> str | None:
+    if code is None:
+        return None
+    m = OCPP_STATUS_PULSAR_PLUS if layout_name == "pulsar_plus" else OCPP_STATUS_PULSAR_MAX
+    return m.get(code, f"Unknown ({code})")
+
 
 def _maps_for(layout_name: str | None) -> tuple[dict[int, str], frozenset[int], frozenset[int], frozenset[int]]:
     """Return (status_map, charging, car_connected, locked) for a layout."""
