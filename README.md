@@ -78,6 +78,19 @@ See `dev/README.md` for the full dev-HA workflow.
 - Responses arrive as unframed JSON chunked across BLE notifications and are
   reassembled by tracking JSON brace depth.
 
+## Credits
+
+The BAPI wire protocol (frame format, command opcodes, telemetry fields,
+status code map) was reverse-engineered and documented by
+**Daniel Botts** in [`botts7/esp32-wallbox`](https://github.com/botts7/esp32-wallbox)
+(MIT License, Copyright (c) 2026 Daniel Botts). This integration is a
+clean-room reimplementation of the same protocol for Home Assistant + a
+Bluetooth proxy, and would not exist without that prior work.
+
+The original Home Assistant attempt at a Pulsar Plus BLE integration by
+[`jagheterfredrik/wallbox-ble`](https://github.com/jagheterfredrik/wallbox-ble)
+informed the GATT layout for that model.
+
 ## License
 
 MIT.
